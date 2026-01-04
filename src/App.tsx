@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Settings, Check, Timer } from 'lucide-react';
+import { Play, Square, Settings, Check, Timer, Github } from 'lucide-react';
 
 interface ExtensionSettings {
   searchCount: number;
@@ -288,6 +288,19 @@ function App() {
                 </p>
               </div>
             )}
+
+            {/* Made by Ved Sharma */}
+            <div className="mt-6 pt-4 border-t border-slate-200">
+              <a
+                href="https://github.com/ved-sharma-2411"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 text-sm text-slate-600 hover:text-blue-600 transition-colors group"
+              >
+                <Github className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span>Made by <span className="font-semibold">Ved Sharma</span></span>
+              </a>
+            </div>
           </>
         )}
       </div>
