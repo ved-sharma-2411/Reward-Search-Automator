@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Settings, Check, Timer, Github } from 'lucide-react';
+import { Play, Square, Settings, Check, Timer, Github, Sparkles } from 'lucide-react';
 
 interface ExtensionSettings {
   searchCount: number;
@@ -8,6 +8,9 @@ interface ExtensionSettings {
   autoStart: boolean;
   completedToday: number;
   isRunning: boolean;
+  searchCategory: string;
+  humanMode: boolean;
+  clickResults: boolean;
 }
 
 interface SearchStatus {
@@ -26,7 +29,10 @@ function App() {
     isEnabled: false,
     autoStart: true,
     completedToday: 0,
-    isRunning: false
+    isRunning: false,
+    searchCategory: 'random',
+    humanMode: true,
+    clickResults: true
   });
 
   const [searchStatus, setSearchStatus] = useState<SearchStatus>({
@@ -39,8 +45,32 @@ function App() {
   });
 
   const [showSettings, setShowSettings] = useState(false);
-  const [tempSettings, setTempSettings] = useState({ searchCount: 30, waitTime: 10 });
+  const [tempSettings, setTempSettings] = useState({
+    searchCount: 30,
+    waitTime: 10,
+    searchCategory: 'random',
+    humanMode: true,
+    clickResults: true
+  });
   const [saved, setSaved] = useState(false);
+
+  const categories = [
+    { value: 'random', label: 'Random (All Categories)', icon: '🎲' },
+    { value: 'anime', label: 'Anime & Manga', icon: '🎌' },
+    { value: 'sports', label: 'Sports & Athletics', icon: '⚽' },
+    { value: 'news', label: 'News & Current Events', icon: '📰' },
+    { value: 'trending', label: 'Trending Topics', icon: '🔥' },
+    { value: 'food', label: 'Food & Recipes', icon: '🍕' },
+    { value: 'technology', label: 'Technology & Gadgets', icon: '💻' },
+    { value: 'gaming', label: 'Gaming & Esports', icon: '🎮' },
+    { value: 'movies', label: 'Movies & TV Shows', icon: '🎬' },
+    { value: 'music', label: 'Music & Artists', icon: '🎵' },
+    { value: 'travel', label: 'Travel & Places', icon: '✈️' },
+    { value: 'science', label: 'Science & Research', icon: '🔬' },
+    { value: 'health', label: 'Health & Fitness', icon: '💪' },
+    { value: 'fashion', label: 'Fashion & Style', icon: '👗' },
+    { value: 'business', label: 'Business & Finance', icon: '💼' }
+  ];
 
   useEffect(() => {
     loadSettings();
@@ -63,7 +93,7 @@ function App() {
 
   const loadSettings = () => {
     chrome.storage.local.get(
-      ['searchCount', 'waitTime', 'isEnabled', 'autoStart', 'completedToday', 'isRunning'],
+      ['searchCount', 'waitTime', 'isEnabled', 'autoStart', 'completedToday', 'isRunning', 'searchCategory', 'humanMode', 'clickResults'],
       (result) => {
         const newSettings = {
           searchCount: result.searchCount || 30,
@@ -71,15 +101,20 @@ function App() {
           isEnabled: result.isEnabled || false,
           autoStart: result.autoStart !== undefined ? result.autoStart : true,
           completedToday: result.completedToday || 0,
-          isRunning: result.isRunning || false
+          isRunning: result.isRunning || false,
+          searchCategory: result.searchCategory || 'random',
+          humanMode: result.humanMode !== undefined ? result.humanMode : true,
+          clickResults: result.clickResults !== undefined ? result.clickResults : true
         };
         setSettings(newSettings);
-        
-        // Only update tempSettings if settings view is not open (to avoid overwriting user input)
+
         if (!showSettings) {
           setTempSettings({
             searchCount: newSettings.searchCount,
-            waitTime: newSettings.waitTime
+            waitTime: newSettings.waitTime,
+            searchCategory: newSettings.searchCategory,
+            humanMode: newSettings.humanMode,
+            clickResults: newSettings.clickResults
           });
         }
       }
@@ -108,7 +143,10 @@ function App() {
   const handleSaveSettings = async () => {
     await chrome.storage.local.set({
       searchCount: tempSettings.searchCount,
-      waitTime: tempSettings.waitTime
+      waitTime: tempSettings.waitTime,
+      searchCategory: tempSettings.searchCategory,
+      humanMode: tempSettings.humanMode,
+      clickResults: tempSettings.clickResults
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -136,7 +174,7 @@ function App() {
         </div>
 
         {showSettings ? (
-          <div className="space-y-4 animate-fadeIn">
+          <div className="space-y-4 animate-fadeIn max-h-96 overflow-y-auto pr-2">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Number of Searches
@@ -166,6 +204,73 @@ function App() {
                 onChange={(e) => setTempSettings({ ...tempSettings, waitTime: parseInt(e.target.value) || 5 })}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Search Category
+              </label>
+              <select
+                value={tempSettings.searchCategory}
+                onChange={(e) => setTempSettings({ ...tempSettings, searchCategory: e.target.value })}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+              >
+                {categories.map(cat => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.icon} {cat.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                Choose a specific topic or random for variety
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-500" />
+                    Human-Like Behavior
+                  </span>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Adds realistic delays, scrolling, and interactions
+                  </p>
+                </div>
+                <button
+                  onClick={() => setTempSettings({ ...tempSettings, humanMode: !tempSettings.humanMode })}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    tempSettings.humanMode ? 'bg-green-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      tempSettings.humanMode ? 'translate-x-6' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <span className="text-sm font-medium text-slate-700">Click Search Results</span>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Randomly clicks on results for more authenticity
+                  </p>
+                </div>
+                <button
+                  onClick={() => setTempSettings({ ...tempSettings, clickResults: !tempSettings.clickResults })}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    tempSettings.clickResults ? 'bg-green-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      tempSettings.clickResults ? 'translate-x-6' : ''
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             <button
@@ -251,7 +356,7 @@ function App() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={handleToggle}
-                disabled={settings.completedToday >= settings.searchCount}
+                disabled={!settings.isEnabled && settings.completedToday >= settings.searchCount}
                 className={`flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${
                   settings.isEnabled
                     ? 'bg-red-500 hover:bg-red-600 text-white'

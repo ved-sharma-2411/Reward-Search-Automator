@@ -8,7 +8,6 @@ let searchState = {
 };
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Initialize defaults once and auto-start if enabled
   ensureDefaults().then(() => {
     chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
     checkAndStartSearches();
@@ -16,21 +15,17 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  // Initialize defaults once and auto-start if enabled
   ensureDefaults().then(async () => {
     chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
 
-    // Check if searches were running when browser was closed
     const result = await chrome.storage.local.get(['isRunning']);
     if (result.isRunning) {
-      // Reset progress if browser was closed while running
-      await chrome.storage.local.set({ 
+      await chrome.storage.local.set({
         completedToday: 0,
-        isRunning: false 
+        isRunning: false
       });
     }
 
-    // Wait 5 seconds before auto-starting
     setTimeout(() => {
       checkAndStartSearches();
     }, 5000);
@@ -56,7 +51,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-// Update timer state every second
 setInterval(() => {
   if (searchState.isRunning && searchState.timerEndTime > 0) {
     const now = Date.now();
@@ -67,7 +61,6 @@ setInterval(() => {
 async function checkAndStartSearches() {
   const result = await chrome.storage.local.get(['autoStart', 'searchCount', 'completedToday', 'lastSearchDate']);
 
-  // Default to auto-start on if the user has never configured it
   const autoStart = result.autoStart !== undefined ? result.autoStart : true;
 
   if (!autoStart) return;
@@ -87,7 +80,6 @@ async function checkAndStartSearches() {
 async function startSearches() {
   const result = await chrome.storage.local.get(['searchCount', 'waitTime', 'completedToday', 'isEnabled']);
 
-  // Default to enabled when auto-start is on and user hasn't toggled it off
   const isEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
 
   if (!isEnabled) return;
@@ -97,8 +89,7 @@ async function startSearches() {
   searchState.isRunning = true;
 
   await chrome.storage.local.set({ isRunning: true });
-  
-  // Update badge when starting
+
   updateBadge(searchState.currentIndex);
 
   if (searchState.currentIndex < searchState.totalSearches) {
@@ -114,51 +105,56 @@ async function performNextSearch() {
     return;
   }
 
-  const query = generateRandomQuery();
+  const result = await chrome.storage.local.get(['searchCategory', 'humanMode', 'clickResults']);
+  const query = generateCategoryQuery(result.searchCategory || 'random');
+  const humanMode = result.humanMode !== undefined ? result.humanMode : true;
+  const clickResults = result.clickResults !== undefined ? result.clickResults : true;
 
   try {
-    // Get or create a Bing tab
     const tabs = await chrome.tabs.query({ url: 'https://www.bing.com/*' });
     let tab;
 
     if (tabs.length > 0) {
-      // Use existing Bing tab - don't reload, just send message to type
       tab = tabs[0];
       await chrome.tabs.update(tab.id, { active: false });
-      
-      // Send message immediately to type the query
+
       try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'typeSearch', query: query });
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'typeSearch',
+          query: query,
+          humanMode: humanMode,
+          clickResults: clickResults
+        });
       } catch (error) {
         console.error('Failed to send message to content script:', error);
       }
     } else {
-      // Create new tab if no Bing tab exists
       tab = await chrome.tabs.create({ url: 'https://www.bing.com/', active: false });
-      
-      // Wait for the page to load, then send message to type the query
+
       setTimeout(async () => {
         try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'typeSearch', query: query });
+          await chrome.tabs.sendMessage(tab.id, {
+            action: 'typeSearch',
+            query: query,
+            humanMode: humanMode,
+            clickResults: clickResults
+          });
         } catch (error) {
           console.error('Failed to send message to content script:', error);
         }
       }, 2000);
     }
 
-    // Start timer after search begins
-    const result = await chrome.storage.local.get(['waitTime']);
-    const baseWaitTime = result.waitTime || 10;
+    const waitTimeResult = await chrome.storage.local.get(['waitTime']);
+    const baseWaitTime = waitTimeResult.waitTime || 10;
     const randomWaitTime = (baseWaitTime + Math.random() * 10) * 1000;
-    
+
     searchState.timerStartTime = Date.now();
     searchState.timerEndTime = Date.now() + randomWaitTime;
     searchState.remainingTime = Math.ceil(randomWaitTime / 1000);
 
-    // Wait for timer to complete before incrementing count
     await new Promise(resolve => setTimeout(resolve, randomWaitTime));
 
-    // Timer ended - now increment the count
     searchState.currentIndex++;
     searchState.timerStartTime = 0;
     searchState.timerEndTime = 0;
@@ -170,15 +166,11 @@ async function performNextSearch() {
       lastSearchDate: today
     });
 
-    // Update badge with current count
     updateBadge(searchState.currentIndex);
 
-    // Check if all searches are completed
     if (searchState.currentIndex < searchState.totalSearches) {
-      // Continue to next search
       performNextSearch();
     } else {
-      // All searches completed - close all tabs except rewards page
       await closeAllTabsAndOpenRewards();
       stopSearches();
     }
@@ -196,23 +188,19 @@ function stopSearches() {
   searchState.remainingTime = 0;
   chrome.storage.local.set({ isRunning: false });
   chrome.alarms.clear('nextSearch');
-  
-  // Clear badge when stopped
+
   chrome.action.setBadgeText({ text: '' });
 }
 
 async function closeAllTabsAndOpenRewards() {
   try {
-    // Get all tabs
     const allTabs = await chrome.tabs.query({});
-    
-    // Create the rewards page first
-    const rewardsTab = await chrome.tabs.create({ 
-      url: 'https://rewards.bing.com/?ref=rewardspanel', 
-      active: true 
+
+    const rewardsTab = await chrome.tabs.create({
+      url: 'https://rewards.bing.com/?ref=rewardspanel',
+      active: true
     });
-    
-    // Close all other tabs
+
     const tabsToClose = allTabs.map(tab => tab.id).filter(id => id !== rewardsTab.id);
     if (tabsToClose.length > 0) {
       await chrome.tabs.remove(tabsToClose);
@@ -223,20 +211,21 @@ async function closeAllTabsAndOpenRewards() {
 }
 
 function updateBadge(count) {
-  // Format count with leading zero for single digits (01, 02, etc.)
   const badgeText = count.toString().padStart(2, '0');
   chrome.action.setBadgeText({ text: badgeText });
   chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
 }
 
-// Ensure baseline settings exist so auto-start can run on first install/startup
 async function ensureDefaults() {
   const defaults = {
     searchCount: 30,
     waitTime: 10,
     autoStart: true,
     completedToday: 0,
-    lastSearchDate: ''
+    lastSearchDate: '',
+    searchCategory: 'random',
+    humanMode: true,
+    clickResults: true
   };
 
   const current = await chrome.storage.local.get(Object.keys(defaults));
@@ -253,74 +242,139 @@ async function ensureDefaults() {
   }
 }
 
-function generateRandomQuery() {
+function generateCategoryQuery(category) {
   const now = new Date();
   const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
   const hourOfDay = now.getHours();
-  
-  const topics = [
-    'weather forecast', 'breaking news', 'sports highlights', 'technology trends', 'scientific discoveries', 
-    'health tips', 'entertainment news', 'travel destinations', 'food recipes', 'fashion trends',
-    'music releases', 'movie reviews', 'book recommendations', 'gaming news', 'art exhibitions',
-    'historical events', 'nature documentaries', 'space exploration', 'wildlife conservation', 'electric cars',
-    'photography tips', 'fitness routines', 'cryptocurrency', 'artificial intelligence', 'climate change',
-    'renewable energy', 'virtual reality', 'quantum computing', 'gene therapy', 'robotics',
-    'cybersecurity', 'blockchain technology', 'machine learning', 'data science', 'cloud computing',
-    'mobile apps', 'web development', 'social media trends', 'digital marketing', 'e-commerce',
-    'sustainable living', 'meditation techniques', 'yoga practices', 'mental health awareness', 'nutrition facts',
-    'stock market', 'real estate', 'entrepreneurship', 'startup ideas', 'business strategies'
-  ];
+  const searchIndex = searchState.currentIndex;
+
+  const categoryTopics = {
+    anime: [
+      'best anime series', 'anime recommendations', 'popular anime', 'anime characters', 'anime movies',
+      'latest anime episodes', 'manga series', 'anime streaming', 'anime reviews', 'seasonal anime',
+      'shounen anime', 'seinen anime', 'isekai anime', 'romance anime', 'action anime',
+      'anime soundtracks', 'anime openings', 'manga volumes', 'anime merchandise', 'cosplay ideas'
+    ],
+    sports: [
+      'sports news', 'football highlights', 'basketball scores', 'soccer matches', 'tennis tournaments',
+      'baseball games', 'sports statistics', 'athletic training', 'fitness tips', 'sports equipment',
+      'NFL updates', 'NBA scores', 'Premier League', 'Champions League', 'Olympics news',
+      'sports injuries', 'workout routines', 'sports betting', 'team rankings', 'player stats'
+    ],
+    news: [
+      'breaking news', 'world news', 'local news', 'political updates', 'economic news',
+      'technology news', 'science news', 'health news', 'environmental news', 'business news',
+      'current events', 'news headlines', 'international news', 'national news', 'financial news',
+      'weather updates', 'latest developments', 'news analysis', 'investigative reports', 'press releases'
+    ],
+    trending: [
+      'trending topics', 'viral videos', 'popular searches', 'social media trends', 'memes',
+      'celebrity news', 'trending hashtags', 'viral content', 'internet trends', 'trending now',
+      'popular culture', 'trending music', 'viral challenges', 'trending fashion', 'hot topics',
+      'trending stories', 'social trends', 'cultural phenomena', 'trending products', 'buzz worthy'
+    ],
+    food: [
+      'recipes', 'cooking tips', 'restaurant reviews', 'food delivery', 'healthy meals',
+      'dessert recipes', 'quick meals', 'meal prep', 'vegan recipes', 'vegetarian dishes',
+      'baking ideas', 'food blogs', 'chef recommendations', 'cuisine types', 'food photography',
+      'cooking techniques', 'kitchen gadgets', 'meal planning', 'food trends', 'nutrition facts'
+    ],
+    technology: [
+      'latest tech', 'smartphones', 'laptops', 'gadgets', 'tech reviews',
+      'software updates', 'apps', 'AI technology', 'cloud computing', 'tech news',
+      'programming languages', 'tech tutorials', 'device comparisons', 'tech startups', 'innovations',
+      'smart devices', 'wearable tech', 'tech conferences', 'cybersecurity', 'tech deals'
+    ],
+    gaming: [
+      'video games', 'gaming news', 'game reviews', 'esports', 'gaming setup',
+      'new game releases', 'gaming consoles', 'PC gaming', 'mobile games', 'game strategies',
+      'gaming tournaments', 'game walkthrough', 'gaming peripherals', 'game trailers', 'indie games',
+      'multiplayer games', 'game updates', 'gaming community', 'game streaming', 'gaming tips'
+    ],
+    movies: [
+      'new movies', 'movie reviews', 'film trailers', 'cinema releases', 'streaming movies',
+      'movie recommendations', 'box office', 'film festivals', 'movie ratings', 'classic films',
+      'TV shows', 'series recommendations', 'Netflix originals', 'HBO series', 'movie actors',
+      'film directors', 'movie genres', 'award shows', 'movie soundtracks', 'behind the scenes'
+    ],
+    music: [
+      'new music', 'music videos', 'concert tours', 'music festivals', 'album releases',
+      'music streaming', 'song lyrics', 'music charts', 'artist news', 'music genres',
+      'music production', 'music reviews', 'live performances', 'music awards', 'playlists',
+      'music instruments', 'music lessons', 'music theory', 'band news', 'music events'
+    ],
+    travel: [
+      'travel destinations', 'vacation ideas', 'travel tips', 'hotel reviews', 'flight deals',
+      'tourist attractions', 'travel guides', 'backpacking', 'luxury travel', 'budget travel',
+      'travel photography', 'travel insurance', 'travel packages', 'road trips', 'beach destinations',
+      'mountain resorts', 'city tours', 'travel blogs', 'adventure travel', 'travel planning'
+    ],
+    science: [
+      'scientific discoveries', 'research papers', 'space exploration', 'physics news', 'biology studies',
+      'chemistry research', 'astronomy updates', 'scientific journals', 'lab experiments', 'science news',
+      'technology innovations', 'medical research', 'environmental science', 'quantum physics', 'genetics',
+      'paleontology', 'neuroscience', 'climate research', 'scientific theories', 'research funding'
+    ],
+    health: [
+      'health tips', 'fitness routines', 'workout plans', 'nutrition advice', 'mental health',
+      'medical news', 'diet plans', 'wellness tips', 'healthy lifestyle', 'exercise routines',
+      'yoga practices', 'meditation techniques', 'health research', 'disease prevention', 'supplements',
+      'fitness equipment', 'health insurance', 'medical treatments', 'health monitoring', 'wellness programs'
+    ],
+    fashion: [
+      'fashion trends', 'style tips', 'clothing brands', 'fashion shows', 'outfit ideas',
+      'designer collections', 'fashion accessories', 'seasonal fashion', 'fashion blogs', 'streetwear',
+      'luxury fashion', 'sustainable fashion', 'fashion photography', 'makeup trends', 'beauty tips',
+      'fashion industry', 'fashion week', 'styling advice', 'wardrobe essentials', 'fashion influencers'
+    ],
+    business: [
+      'business news', 'stock market', 'startup ideas', 'entrepreneurship', 'business strategies',
+      'investment tips', 'financial planning', 'business management', 'marketing strategies', 'sales techniques',
+      'business growth', 'industry trends', 'corporate news', 'business analytics', 'leadership skills',
+      'business development', 'real estate', 'economic outlook', 'business opportunities', 'financial markets'
+    ]
+  };
 
   const modifiers = [
-    'latest', 'best', 'top', 'new', 'trending', 'popular', 'today', 'updates', 'recent',
-    'breaking', 'exclusive', 'comprehensive', 'ultimate', 'complete', 'advanced', 'beginner',
-    'professional', 'expert', 'innovative', 'revolutionary', 'cutting-edge', 'emerging',
-    'future of', 'impact of', 'benefits of', 'challenges in', 'opportunities in', 'developments in'
+    'best', 'top', 'latest', 'new', 'trending', 'popular', 'recommended', 'ultimate',
+    'complete guide to', 'how to', 'what is', 'why', 'when', 'where to find',
+    'reviews on', 'comparison of', 'tips for', 'tricks for', 'advanced',
+    'beginner', 'professional', '2026', 'recent', 'updated', 'comprehensive'
   ];
 
   const locations = [
-    'worldwide', 'USA', 'Europe', 'Asia', 'global', 'local', 'international', 'national',
-    'regional', 'North America', 'South America', 'Africa', 'Australia', 'Middle East'
+    'worldwide', 'USA', 'global', 'local', 'near me', 'online',
+    'in America', 'in Europe', 'in Asia', 'internationally'
   ];
 
-  const timeReferences = [
-    '2026', 'this year', 'this month', 'this week', 'today', 'January 2026',
-    'recent', 'current', 'upcoming', 'future', 'modern', 'contemporary'
-  ];
+  let topics;
+  if (category === 'random') {
+    const allCategories = Object.keys(categoryTopics);
+    const randomCategory = allCategories[(dayOfYear + searchIndex) % allCategories.length];
+    topics = categoryTopics[randomCategory];
+  } else {
+    topics = categoryTopics[category] || categoryTopics['random'];
+  }
 
-  const questionWords = [
-    'how to', 'what is', 'why is', 'when will', 'where to find', 'who is',
-    'which are the best', 'can you', 'should I', 'will there be'
-  ];
-
-  // Use day of year and hour to create consistent but varied queries throughout the day
-  const topicIndex = (dayOfYear + searchState.currentIndex) % topics.length;
-  const modifierIndex = (dayOfYear * 2 + searchState.currentIndex + hourOfDay) % modifiers.length;
-  const locationIndex = (dayOfYear + searchState.currentIndex * 3) % locations.length;
-  const timeIndex = (dayOfYear + hourOfDay) % timeReferences.length;
-  const questionIndex = (searchState.currentIndex + dayOfYear) % questionWords.length;
+  const topicIndex = (dayOfYear + searchIndex + hourOfDay) % topics.length;
+  const modifierIndex = (searchIndex + dayOfYear) % modifiers.length;
+  const locationIndex = (searchIndex * 2 + dayOfYear) % locations.length;
 
   const topic = topics[topicIndex];
   const modifier = modifiers[modifierIndex];
   const location = locations[locationIndex];
-  const timeRef = timeReferences[timeIndex];
-  const question = questionWords[questionIndex];
 
   const patterns = [
     `${modifier} ${topic}`,
-    `${topic} ${timeRef}`,
-    `${location} ${topic}`,
+    `${topic} ${location}`,
+    `${modifier} ${topic} 2026`,
+    `${topic}`,
     `${modifier} ${topic} ${location}`,
-    `${topic} ${modifier} ${timeRef}`,
-    `${question} ${topic}`,
-    `${topic} in ${location}`,
-    `${timeRef} ${topic} ${modifier}`,
-    `${modifier} ${topic} updates`,
-    `${question} ${topic} in ${timeRef}`
+    `${topic} reviews`,
+    `${topic} tips`,
+    `best ${topic}`
   ];
 
-  const patternIndex = (searchState.currentIndex + dayOfYear) % patterns.length;
-  const pattern = patterns[patternIndex];
-
-  return pattern;
+  const patternIndex = (searchIndex + hourOfDay) % patterns.length;
+  return patterns[patternIndex];
 }
